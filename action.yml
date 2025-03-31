@@ -1,9 +1,9 @@
-name: 'Keploy TestGPT'
+name: "Keploy TestGPT"
 description: "TestGPT is a GitHub Action designed to execute Keploy test cases and generate detailed test reports."
 author: Sonichigo
 branding:
-  icon: 'aperture'
-  color: 'orange'
+  icon: "aperture"
+  color: "orange"
 
 inputs:
   working-directory:
@@ -19,7 +19,7 @@ inputs:
   delay:
     description: Time to start application
     required: true
-    default: 10
+    default: 10s
   container-name:
     description: Name of the container in case of "docker compose" command
   build-delay:
@@ -32,34 +32,108 @@ runs:
     - name: Setup GITHUB_PATH for script
       run: |
         echo "${{ github.action_path }}" >> $GITHUB_PATH
-        echo "${{ inputs.working-directory }}"
+        echo "Working directory: ${{ inputs.working-directory }}"
+        echo "Keploy path: ${{ inputs.keploy-path }}"
       shell: bash
     - name: Grant permissions
       run: chmod +x ${GITHUB_ACTION_PATH}/install.sh
       shell: bash
+    - name: Install YAML tools
+      run: |
+        wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+        chmod +x /usr/local/bin/yq
+      shell: bash
     - id: keploy-test-report
-      name: Run Script
-      run:  |
-        ${GITHUB_ACTION_PATH}/install.sh > ${GITHUB_WORKSPACE}/${WORKDIR}/report.txt
-        cat ${GITHUB_WORKSPACE}/${WORKDIR}/report.txt
+      name: Run Keploy Tests and Process Results
+      run: |
+        # Run the Keploy tests
+        ${GITHUB_ACTION_PATH}/install.sh > ${GITHUB_WORKSPACE}/${WORKDIR}/console-output.txt
 
-        # Search for the complete testrun summary and extract total tests, total test passed, and total test failed data
-        grep -oE "COMPLETE TESTRUN SUMMARY\.\s+Total tests: [0-9]+" ${GITHUB_WORKSPACE}/${WORKDIR}/report.txt | sed -r "s/\x1B\[[0-9;]*[mGK]//g" > ${GITHUB_WORKSPACE}/${WORKDIR}/final_total_tests.out
-        grep -oE "COMPLETE TESTRUN SUMMARY\.\s+Total test passed: [0-9]+" ${GITHUB_WORKSPACE}/${WORKDIR}/report.txt | sed -r "s/\x1B\[[0-9;]*[mGK]//g" > ${GITHUB_WORKSPACE}/${WORKDIR}/final_total_passed.out
-        grep -oE "COMPLETE TESTRUN SUMMARY\.\s+Total test failed: [0-9]+" ${GITHUB_WORKSPACE}/${WORKDIR}/report.txt | sed -r "s/\x1B\[[0-9;]*[mGK]//g" > ${GITHUB_WORKSPACE}/${WORKDIR}/final_total_failed.out
+        # Look for all generated YAML reports
+        REPORT_DIR="${GITHUB_WORKSPACE}/${WORKDIR}/keploy/reports/test-run-0"
 
-        # Combine the results into a single file and prepare output
-        cat ${GITHUB_WORKSPACE}/${WORKDIR}/final_total_tests.out ${GITHUB_WORKSPACE}/${WORKDIR}/final_total_passed.out ${GITHUB_WORKSPACE}/${WORKDIR}/final_total_failed.out > ${GITHUB_WORKSPACE}/${WORKDIR}/final.out
-        echo 'KEPLOY_REPORT<<EOF' > $GITHUB_OUTPUT
-        cat ${GITHUB_WORKSPACE}/${WORKDIR}/final.out >> $GITHUB_OUTPUT
-        echo 'EOF' >> $GITHUB_OUTPUT
-        cat $GITHUB_OUTPUT
+        if [ -d "$REPORT_DIR" ]; then
+          echo "Found Keploy test reports directory at: $REPORT_DIR"
+          
+          # Initialize counters
+          TOTAL_TESTS=0
+          PASSED_TESTS=0
+          FAILED_TESTS=0
+          STATUS="UNKNOWN"
+          
+          # Find all test report files
+          REPORT_FILES=$(find "$REPORT_DIR" -name "test-set-*-report.yaml" | sort)
+          
+          if [ -z "$REPORT_FILES" ]; then
+            echo "Error: No Keploy test reports found in directory: $REPORT_DIR" >&2
+            exit 1
+          fi
+          
+          echo "Processing test reports:"
+          
+          # Process each report file
+          for REPORT_PATH in $REPORT_FILES; do
+            echo "Processing report: $REPORT_PATH"
+            
+            # Validate YAML first
+            if ! yq eval '.' "$REPORT_PATH" > /dev/null 2>&1; then
+              echo "Error: Invalid YAML in report file: $REPORT_PATH" >&2
+              continue
+            fi
+            
+            # Extract test results from YAML report
+            FILE_TOTAL=$(yq eval '.total // 0' "$REPORT_PATH")
+            FILE_PASSED=$(yq eval '.success // 0' "$REPORT_PATH")
+            FILE_FAILED=$(yq eval '.failure // 0' "$REPORT_PATH")
+            FILE_STATUS=$(yq eval '.status // "UNKNOWN"' "$REPORT_PATH")
+            
+            echo "  Total: $FILE_TOTAL, Passed: $FILE_PASSED, Failed: $FILE_FAILED, Status: $FILE_STATUS"
+            
+            # Aggregate results
+            TOTAL_TESTS=$((TOTAL_TESTS + FILE_TOTAL))
+            PASSED_TESTS=$((PASSED_TESTS + FILE_PASSED))
+            FAILED_TESTS=$((FAILED_TESTS + FILE_FAILED))
+            
+            # Update overall status (if any test set failed, overall status is FAILED)
+            if [ "$FILE_STATUS" = "FAILED" ]; then
+              STATUS="FAILED"
+            elif [ "$STATUS" != "FAILED" ] && [ "$FILE_STATUS" = "PASSED" ]; then
+              STATUS="PASSED"
+            fi
+          done
+          
+          # Create formatted output
+          echo "COMPLETE TESTRUN SUMMARY. Total tests: $TOTAL_TESTS" > ${GITHUB_WORKSPACE}/${WORKDIR}/final_total_tests.out
+          echo "COMPLETE TESTRUN SUMMARY. Total test passed: $PASSED_TESTS" > ${GITHUB_WORKSPACE}/${WORKDIR}/final_total_passed.out
+          echo "COMPLETE TESTRUN SUMMARY. Total test failed: $FAILED_TESTS" > ${GITHUB_WORKSPACE}/${WORKDIR}/final_total_failed.out
+          
+          # Combine the results into final.out
+          cat ${GITHUB_WORKSPACE}/${WORKDIR}/final_total_tests.out ${GITHUB_WORKSPACE}/${WORKDIR}/final_total_passed.out ${GITHUB_WORKSPACE}/${WORKDIR}/final_total_failed.out > ${GITHUB_WORKSPACE}/${WORKDIR}/final.out
+          
+          # Set the output for GitHub Actions
+          {
+            echo 'KEPLOY_REPORT<<EOF'
+            echo "## Keploy Test Results"
+            echo "**Status:** $STATUS"
+            echo "**Total Tests:** $TOTAL_TESTS"
+            echo "**Passed:** $PASSED_TESTS"
+            echo "**Failed:** $FAILED_TESTS"
+            echo 'EOF'
+          } >> $GITHUB_OUTPUT
+        else
+          echo "Error: Keploy test reports directory not found at expected path: $REPORT_DIR" >&2
+          echo "Contents of keploy directory:"
+          find ${GITHUB_WORKSPACE}/${WORKDIR}/keploy -type f | sort
+          exit 1
+        fi
       shell: bash
       env:
         WORKDIR: ${{ inputs.working-directory }}
         DELAY: ${{ inputs.delay }}
-        COMMAND : ${{ inputs.command }}
-        KEPLOY_PATH: ${{inputs.keploy-path}}
+        COMMAND: ${{ inputs.command }}
+        KEPLOY_PATH: ${{ inputs.keploy-path }}
+        CONTAINER_NAME: ${{ inputs.container-name }}
+        BUILD_DELAY: ${{ inputs.build-delay }}
     - name: Check if report is generated
       run: |
         if [ -s ${GITHUB_WORKSPACE}/${WORKDIR}/final.out ]; then
@@ -69,21 +143,54 @@ runs:
           exit 1
         fi
       shell: bash
+      env:
+        WORKDIR: ${{ inputs.working-directory }}
     - name: Comment on PR
-      if: success()
+      if: success() && github.event_name == 'pull_request'
       uses: actions/github-script@v6
       env:
         KEPLOY_REPORT: ${{ steps.keploy-test-report.outputs.KEPLOY_REPORT }}
       with:
         github-token: ${{ github.token }}
         script: |
-          if (!process.env.KEPLOY_REPORT) {
-            console.error('Error: KEPLOY_REPORT not found.');
-            process.exit(1);
+          try {
+            if (!process.env.KEPLOY_REPORT) {
+              console.error('Error: KEPLOY_REPORT not found.');
+              process.exit(1);
+            }
+            
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: process.env.KEPLOY_REPORT
+            });
+            console.log('Successfully commented on PR');
+          } catch (error) {
+            console.error('Error commenting on PR:', error.message);
+            console.log('Report content (for reference):');
+            console.log(process.env.KEPLOY_REPORT);
+            
+            // Don't fail the workflow if commenting fails
+            if (error.status === 403) {
+              console.log('Permission issue: Make sure your workflow has proper permissions.');
+              console.log('Add the following to your workflow file:');
+              console.log('permissions:');
+              console.log('  contents: read');
+              console.log('  issues: write');
+              console.log('  pull-requests: write');
+            }
           }
-          github.rest.issues.createComment({
-            issue_number: context.issue.number,
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            body: process.env.KEPLOY_REPORT
-          })
+
+    - name: Display Test Results
+      if: always()
+      run: |
+        echo "============ KEPLOY TEST RESULTS ============"
+        if [ -f "${GITHUB_WORKSPACE}/${WORKDIR}/final.out" ]; then
+          cat "${GITHUB_WORKSPACE}/${WORKDIR}/final.out"
+        else
+          echo "No test results found"
+        fi
+      shell: bash
+      env:
+        WORKDIR: ${{ inputs.working-directory }}
