@@ -28,6 +28,9 @@ inputs:
   runner-version:
     description: Version of the runner to use
     default: "latest"
+  github-token:
+    description: GitHub token for API access to fetch PR details
+    default: ${{ github.token }}
 
 runs:
   using: "composite"
@@ -58,6 +61,7 @@ runs:
         KEPLOY_PATH: ${{ inputs.keploy-path }}
         CONTAINER_NAME: ${{ inputs.container-name }}
         BUILD_DELAY: ${{ inputs.build-delay }}
+        GITHUB_TOKEN: ${{ inputs.github-token }}
         
     - id: keploy-test-report
       name: Process Test Results
