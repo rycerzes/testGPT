@@ -35,20 +35,36 @@ runs:
         echo "Working directory: ${{ inputs.working-directory }}"
         echo "Keploy path: ${{ inputs.keploy-path }}"
       shell: bash
-    - name: Grant permissions
-      run: chmod +x ${GITHUB_ACTION_PATH}/install.sh
+    
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+
+    - name: Build and run Go implementation
+      run: |
+        cd ${GITHUB_ACTION_PATH}
+        go build -o keploy-runner main.go
+        chmod +x keploy-runner
+        ./keploy-runner > ${GITHUB_WORKSPACE}/${WORKDIR}/console-output.txt
       shell: bash
+      env:
+        WORKDIR: ${{ inputs.working-directory }}
+        DELAY: ${{ inputs.delay }}
+        COMMAND: ${{ inputs.command }}
+        KEPLOY_PATH: ${{ inputs.keploy-path }}
+        CONTAINER_NAME: ${{ inputs.container-name }}
+        BUILD_DELAY: ${{ inputs.build-delay }}
+        
     - name: Install YAML tools
       run: |
         wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
         chmod +x /usr/local/bin/yq
       shell: bash
+      
     - id: keploy-test-report
-      name: Run Keploy Tests and Process Results
+      name: Process Test Results
       run: |
-        # Run the Keploy tests
-        ${GITHUB_ACTION_PATH}/install.sh > ${GITHUB_WORKSPACE}/${WORKDIR}/console-output.txt
-
         # Look for all generated YAML reports
         REPORT_DIR="${GITHUB_WORKSPACE}/${WORKDIR}/keploy/reports/test-run-0"
 
@@ -129,11 +145,7 @@ runs:
       shell: bash
       env:
         WORKDIR: ${{ inputs.working-directory }}
-        DELAY: ${{ inputs.delay }}
-        COMMAND: ${{ inputs.command }}
-        KEPLOY_PATH: ${{ inputs.keploy-path }}
-        CONTAINER_NAME: ${{ inputs.container-name }}
-        BUILD_DELAY: ${{ inputs.build-delay }}
+        
     - name: Check if report is generated
       run: |
         if [ -s ${GITHUB_WORKSPACE}/${WORKDIR}/final.out ]; then
