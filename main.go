@@ -389,25 +389,21 @@ func processTestReports(githubWorkspace, workDir string) {
 	// Create GitHub output for both PR and non-PR contexts
 	var githubOutputBuilder strings.Builder
 	githubOutputBuilder.WriteString("KEPLOY_REPORT<<EOF\n")
-	githubOutputBuilder.WriteString("### Keploy Test Results\n\n")
+	githubOutputBuilder.WriteString("### **Keploy Test Results**\n\n")
+
+	// Add test results summary
+	githubOutputBuilder.WriteString(fmt.Sprintf("**Total Tests:** %d\n", totalTests))
+	githubOutputBuilder.WriteString(fmt.Sprintf("**Total Passed:** %d\n", passedTests))
+	githubOutputBuilder.WriteString(fmt.Sprintf("**Total Failed:** %d\n\n", failedTests))
 
 	// Add PR details only if available in PR context
 	if isPRContext && prDetailsMarkdown != "" {
+		githubOutputBuilder.WriteString("<details>\n")
+		githubOutputBuilder.WriteString("<summary>**🔍 PR Analysis**</summary>\n\n")
 		githubOutputBuilder.WriteString(prDetailsMarkdown)
-		githubOutputBuilder.WriteString("\n---\n\n")
+		githubOutputBuilder.WriteString("</details>\n\n")
 	}
 
-	githubOutputBuilder.WriteString("**Test Run Summary**\n\n")
-
-	for _, testSet := range testSets {
-		githubOutputBuilder.WriteString(fmt.Sprintf("- **%s**\n", testSet.ID))
-		githubOutputBuilder.WriteString(fmt.Sprintf("  - Tests passed: %d\n", testSet.PassedTests))
-		githubOutputBuilder.WriteString(fmt.Sprintf("  - Tests failed: %d\n\n", testSet.FailedTests))
-	}
-
-	githubOutputBuilder.WriteString(fmt.Sprintf("**Total Tests:** %d\n", totalTests))
-	githubOutputBuilder.WriteString(fmt.Sprintf("**Total Passed:** %d\n", passedTests))
-	githubOutputBuilder.WriteString(fmt.Sprintf("**Total Failed:** %d\n", failedTests))
 	githubOutputBuilder.WriteString("EOF\n")
 
 	os.WriteFile(filepath.Join(outputDir, "github_output.txt"), []byte(githubOutputBuilder.String()), 0644)

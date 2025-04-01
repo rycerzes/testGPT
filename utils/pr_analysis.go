@@ -103,26 +103,25 @@ func (c *Client) GetPRDetails(prNumber int) (*PRDetails, error) {
 func FormatPRDetailsForComment(pr *PRDetails) string {
 	var sb strings.Builder
 
-	sb.WriteString(fmt.Sprintf("**📊 PR #%d: %s**\n\n", pr.Number, pr.Title))
-
-	sb.WriteString("<details>\n")
-	sb.WriteString("<summary>**PR Details**</summary>\n\n")
+	sb.WriteString("### **Test Results Summary**\n\n")
+	sb.WriteString(fmt.Sprintf("**PR Number**: #%d\n", pr.Number))
+	sb.WriteString(fmt.Sprintf("**Title**: %s\n", pr.Title))
 	sb.WriteString(fmt.Sprintf("**State**: %s\n", pr.State))
 	sb.WriteString(fmt.Sprintf("**Author**: %s\n", pr.Author))
-	sb.WriteString(fmt.Sprintf("**Created**: %s\n", pr.CreatedAt))
-	sb.WriteString(fmt.Sprintf("**Updated**: %s\n", pr.UpdatedAt))
-	sb.WriteString("</details>\n\n")
+	sb.WriteString(fmt.Sprintf("**Created At**: %s\n", pr.CreatedAt))
+	sb.WriteString(fmt.Sprintf("**Updated At**: %s\n\n", pr.UpdatedAt))
 
 	sb.WriteString("<details>\n")
-	sb.WriteString("<summary>**Changed Files**</summary>\n\n")
+	sb.WriteString("<summary>**🔍 PR Analysis Details**</summary>\n\n")
+	sb.WriteString("#### **Changed Files**\n\n")
 
 	for _, file := range pr.ChangedFiles {
-		sb.WriteString(fmt.Sprintf("##### %s (%s)\n", file.Filename, file.Status))
-		sb.WriteString(fmt.Sprintf("##### Changes: +%d, -%d\n\n", file.Additions, file.Deletions))
+		sb.WriteString(fmt.Sprintf("- **File**: `%s` (%s)\n", file.Filename, file.Status))
+		sb.WriteString(fmt.Sprintf("  - **Additions**: %d\n", file.Additions))
+		sb.WriteString(fmt.Sprintf("  - **Deletions**: %d\n\n", file.Deletions))
 	}
 
 	sb.WriteString("</details>\n\n")
-
 	return sb.String()
 }
 
