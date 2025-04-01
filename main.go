@@ -22,6 +22,13 @@ type TestReport struct {
 	Status  string `yaml:"status"`
 }
 
+// TestSetReport represents details for a single test set
+type TestSetReport struct {
+	ID          string
+	PassedTests int
+	FailedTests int
+}
+
 // AggregatedReport holds the final aggregated test results
 type AggregatedReport struct {
 	TotalTests  int    `json:"total_tests"`
@@ -260,6 +267,7 @@ func processTestReports(githubWorkspace, workDir string) {
 	passedTests := 0
 	failedTests := 0
 	status := "UNKNOWN"
+	var testSets []TestSetReport
 
 	fmt.Println("Processing test reports:")
 
@@ -278,8 +286,19 @@ func processTestReports(githubWorkspace, workDir string) {
 			continue
 		}
 
-		fmt.Printf("  Total: %d, Passed: %d, Failed: %d, Status: %s\n",
-			report.Total, report.Success, report.Failure, report.Status)
+		// Extract the test set ID from the filename
+		base := filepath.Base(reportPath)
+		testSetID := strings.TrimSuffix(base, "-report.yaml")
+
+		testSetReport := TestSetReport{
+			ID:          testSetID,
+			PassedTests: report.Success,
+			FailedTests: report.Failure,
+		}
+		testSets = append(testSets, testSetReport)
+
+		fmt.Printf("  %s: Passed: %d, Failed: %d\n",
+			testSetID, report.Success, report.Failure)
 
 		totalTests += report.Total
 		passedTests += report.Success
@@ -297,6 +316,16 @@ func processTestReports(githubWorkspace, workDir string) {
 		os.MkdirAll(outputDir, 0755)
 	}
 
+	var detailedReport strings.Builder
+	detailedReport.WriteString("testrun summary\n")
+	for _, testSet := range testSets {
+		detailedReport.WriteString(fmt.Sprintf("id: %s\n", testSet.ID))
+		detailedReport.WriteString(fmt.Sprintf("tests passed: %d\n", testSet.PassedTests))
+		detailedReport.WriteString(fmt.Sprintf("test failed: %d\n\n", testSet.FailedTests))
+	}
+
+	detailedReportStr := detailedReport.String()
+
 	os.WriteFile(
 		filepath.Join(outputDir, "final_total_tests.out"),
 		[]byte(fmt.Sprintf("COMPLETE TESTRUN SUMMARY. Total tests: %d\n", totalTests)),
@@ -313,13 +342,7 @@ func processTestReports(githubWorkspace, workDir string) {
 		0644,
 	)
 
-	finalOutput := fmt.Sprintf(
-		"COMPLETE TESTRUN SUMMARY. Total tests: %d\n"+
-			"COMPLETE TESTRUN SUMMARY. Total test passed: %d\n"+
-			"COMPLETE TESTRUN SUMMARY. Total test failed: %d\n",
-		totalTests, passedTests, failedTests,
-	)
-	os.WriteFile(filepath.Join(outputDir, "final.out"), []byte(finalOutput), 0644)
+	os.WriteFile(filepath.Join(outputDir, "final.out"), []byte(detailedReportStr), 0644)
 
 	aggregatedReport := AggregatedReport{
 		TotalTests:  totalTests,
@@ -337,17 +360,23 @@ func processTestReports(githubWorkspace, workDir string) {
 	os.WriteFile(filepath.Join(outputDir, "keploy_report.json"), jsonData, 0644)
 	fmt.Println("Test report processing complete")
 
-	githubOutput := fmt.Sprintf(
-		"KEPLOY_REPORT<<EOF\n"+
-			"## Keploy Test Results\n"+
-			"**Status:** %s\n"+
-			"**Total Tests:** %d\n"+
-			"**Passed:** %d\n"+
-			"**Failed:** %d\n"+
-			"EOF\n",
-		status, totalTests, passedTests, failedTests,
-	)
-	os.WriteFile(filepath.Join(outputDir, "github_output.txt"), []byte(githubOutput), 0644)
+	var githubOutputBuilder strings.Builder
+	githubOutputBuilder.WriteString("KEPLOY_REPORT<<EOF\n")
+	githubOutputBuilder.WriteString("### Keploy Test Results\n\n")
+	githubOutputBuilder.WriteString("**Test Run Summary**\n\n")
+
+	for _, testSet := range testSets {
+		githubOutputBuilder.WriteString(fmt.Sprintf("- **%s**\n", testSet.ID))
+		githubOutputBuilder.WriteString(fmt.Sprintf("  - Tests passed: %d\n", testSet.PassedTests))
+		githubOutputBuilder.WriteString(fmt.Sprintf("  - Tests failed: %d\n\n", testSet.FailedTests))
+	}
+
+	githubOutputBuilder.WriteString(fmt.Sprintf("**Total Tests:** %d\n", totalTests))
+	githubOutputBuilder.WriteString(fmt.Sprintf("**Total Passed:** %d\n", passedTests))
+	githubOutputBuilder.WriteString(fmt.Sprintf("**Total Failed:** %d\n", failedTests))
+	githubOutputBuilder.WriteString("EOF\n")
+
+	os.WriteFile(filepath.Join(outputDir, "github_output.txt"), []byte(githubOutputBuilder.String()), 0644)
 }
 
 func listKeployFiles(keployDir string) {

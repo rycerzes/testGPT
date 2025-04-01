@@ -126,6 +126,17 @@ runs:
         echo "============ KEPLOY TEST RESULTS ============"
         if [ -f "${GITHUB_WORKSPACE}/${WORKDIR}/final.out" ]; then
           cat "${GITHUB_WORKSPACE}/${WORKDIR}/final.out"
+          echo ""
+          echo "============ SUMMARY ============"
+          if [ -f "${GITHUB_WORKSPACE}/${WORKDIR}/final_total_tests.out" ]; then
+            cat "${GITHUB_WORKSPACE}/${WORKDIR}/final_total_tests.out"
+          fi
+          if [ -f "${GITHUB_WORKSPACE}/${WORKDIR}/final_total_passed.out" ]; then
+            cat "${GITHUB_WORKSPACE}/${WORKDIR}/final_total_passed.out"
+          fi
+          if [ -f "${GITHUB_WORKSPACE}/${WORKDIR}/final_total_failed.out" ]; then
+            cat "${GITHUB_WORKSPACE}/${WORKDIR}/final_total_failed.out"
+          fi
         else
           echo "No test results found"
         fi
