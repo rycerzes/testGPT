@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -9,7 +10,25 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
+
+// TestReport represents the structure of a Keploy test report
+type TestReport struct {
+	Total   int    `yaml:"total"`
+	Success int    `yaml:"success"`
+	Failure int    `yaml:"failure"`
+	Status  string `yaml:"status"`
+}
+
+// AggregatedReport holds the final aggregated test results
+type AggregatedReport struct {
+	TotalTests  int    `json:"total_tests"`
+	PassedTests int    `json:"passed_tests"`
+	FailedTests int    `json:"failed_tests"`
+	Status      string `json:"status"`
+}
 
 func main() {
 	// Get environment variables
@@ -23,7 +42,6 @@ func main() {
 
 	workingDir := filepath.Join(githubWorkspace, workDir)
 
-	// Install Keploy
 	if err := installKeploy(); err != nil {
 		log.Fatalf("Failed to install Keploy: %v", err)
 	}
@@ -55,7 +73,6 @@ func main() {
 	fmt.Printf("Checking for test-sets in %s\n", keployPath)
 	checkTestSets(keployPath)
 
-	// Execute based on the command type
 	if strings.Contains(command, "go") {
 		fmt.Println("go is present.")
 
@@ -119,6 +136,8 @@ func main() {
 		fmt.Println("Language not found")
 		fmt.Println("Test Mode Shutting 🎉")
 	}
+
+	processTestReports(githubWorkspace, workDir)
 }
 
 func installKeploy() error {
@@ -131,33 +150,28 @@ func installKeploy() error {
 	}
 	defer resp.Body.Close()
 
-	// Create a temporary file to save the tarball
 	tarFile, err := os.CreateTemp("", "keploy_*.tar.gz")
 	if err != nil {
 		return fmt.Errorf("failed to create temp file: %v", err)
 	}
 	defer os.Remove(tarFile.Name())
 
-	// Save the tarball to the temporary file
 	_, err = io.Copy(tarFile, resp.Body)
 	if err != nil {
 		return fmt.Errorf("failed to save tarball: %v", err)
 	}
 	tarFile.Close()
 
-	// Extract the tarball
 	cmd := exec.Command("tar", "xz", "-C", "/tmp", "-f", tarFile.Name())
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to extract tarball: %v", err)
 	}
 
-	// Move keploy to /usr/local/bin
 	cmd = exec.Command("sudo", "mv", "/tmp/keploy", "/usr/local/bin/keploy")
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to move keploy to /usr/local/bin: %v", err)
 	}
 
-	// Make keploy executable
 	cmd = exec.Command("sudo", "chmod", "+x", "/usr/local/bin/keploy")
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to make keploy executable: %v", err)
@@ -207,4 +221,139 @@ func runKeployTest(command, delay, keployPath, containerName, buildDelay string)
 	} else {
 		fmt.Println("Keploy test completed successfully")
 	}
+}
+
+func processTestReports(githubWorkspace, workDir string) {
+	reportDir := filepath.Join(githubWorkspace, workDir, "keploy/reports/test-run-0")
+
+	fmt.Printf("Looking for test reports in: %s\n", reportDir)
+
+	if _, err := os.Stat(reportDir); os.IsNotExist(err) {
+		fmt.Fprintf(os.Stderr, "Error: Keploy test reports directory not found at: %s\n", reportDir)
+		listKeployFiles(filepath.Join(githubWorkspace, workDir, "keploy"))
+		os.Exit(1)
+	}
+
+	var reportFiles []string
+	err := filepath.Walk(reportDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() && strings.HasPrefix(filepath.Base(path), "test-set-") &&
+			strings.HasSuffix(filepath.Base(path), "-report.yaml") {
+			reportFiles = append(reportFiles, path)
+		}
+		return nil
+	})
+
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error walking through report directory: %v\n", err)
+		os.Exit(1)
+	}
+
+	if len(reportFiles) == 0 {
+		fmt.Fprintf(os.Stderr, "Error: No Keploy test reports found in directory: %s\n", reportDir)
+		os.Exit(1)
+	}
+
+	totalTests := 0
+	passedTests := 0
+	failedTests := 0
+	status := "UNKNOWN"
+
+	fmt.Println("Processing test reports:")
+
+	for _, reportPath := range reportFiles {
+		fmt.Printf("Processing report: %s\n", reportPath)
+
+		data, err := os.ReadFile(reportPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading file %s: %v\n", reportPath, err)
+			continue
+		}
+
+		var report TestReport
+		if err := yaml.Unmarshal(data, &report); err != nil {
+			fmt.Fprintf(os.Stderr, "Error parsing YAML in file %s: %v\n", reportPath, err)
+			continue
+		}
+
+		fmt.Printf("  Total: %d, Passed: %d, Failed: %d, Status: %s\n",
+			report.Total, report.Success, report.Failure, report.Status)
+
+		totalTests += report.Total
+		passedTests += report.Success
+		failedTests += report.Failure
+
+		if report.Status == "FAILED" {
+			status = "FAILED"
+		} else if status != "FAILED" && report.Status == "PASSED" {
+			status = "PASSED"
+		}
+	}
+
+	outputDir := filepath.Join(githubWorkspace, workDir)
+	if _, err := os.Stat(outputDir); os.IsNotExist(err) {
+		os.MkdirAll(outputDir, 0755)
+	}
+
+	os.WriteFile(
+		filepath.Join(outputDir, "final_total_tests.out"),
+		[]byte(fmt.Sprintf("COMPLETE TESTRUN SUMMARY. Total tests: %d\n", totalTests)),
+		0644,
+	)
+	os.WriteFile(
+		filepath.Join(outputDir, "final_total_passed.out"),
+		[]byte(fmt.Sprintf("COMPLETE TESTRUN SUMMARY. Total test passed: %d\n", passedTests)),
+		0644,
+	)
+	os.WriteFile(
+		filepath.Join(outputDir, "final_total_failed.out"),
+		[]byte(fmt.Sprintf("COMPLETE TESTRUN SUMMARY. Total test failed: %d\n", failedTests)),
+		0644,
+	)
+
+	finalOutput := fmt.Sprintf(
+		"COMPLETE TESTRUN SUMMARY. Total tests: %d\n"+
+			"COMPLETE TESTRUN SUMMARY. Total test passed: %d\n"+
+			"COMPLETE TESTRUN SUMMARY. Total test failed: %d\n",
+		totalTests, passedTests, failedTests,
+	)
+	os.WriteFile(filepath.Join(outputDir, "final.out"), []byte(finalOutput), 0644)
+
+	aggregatedReport := AggregatedReport{
+		TotalTests:  totalTests,
+		PassedTests: passedTests,
+		FailedTests: failedTests,
+		Status:      status,
+	}
+
+	jsonData, err := json.MarshalIndent(aggregatedReport, "", "  ")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error generating JSON report: %v\n", err)
+		os.Exit(1)
+	}
+
+	os.WriteFile(filepath.Join(outputDir, "keploy_report.json"), jsonData, 0644)
+	fmt.Println("Test report processing complete")
+
+	githubOutput := fmt.Sprintf(
+		"KEPLOY_REPORT<<EOF\n"+
+			"## Keploy Test Results\n"+
+			"**Status:** %s\n"+
+			"**Total Tests:** %d\n"+
+			"**Passed:** %d\n"+
+			"**Failed:** %d\n"+
+			"EOF\n",
+		status, totalTests, passedTests, failedTests,
+	)
+	os.WriteFile(filepath.Join(outputDir, "github_output.txt"), []byte(githubOutput), 0644)
+}
+
+func listKeployFiles(keployDir string) {
+	fmt.Println("Contents of keploy directory:")
+	cmd := exec.Command("find", keployDir, "-type", "f")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Run()
 }

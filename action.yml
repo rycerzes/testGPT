@@ -37,13 +37,15 @@ runs:
       shell: bash
     
     - name: Set up Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v5
       with:
-        go-version: '1.21'
+        go-version: '1.23.2'
 
     - name: Build and run Go implementation
       run: |
         cd ${GITHUB_ACTION_PATH}
+        # Install required Go packages
+        go get gopkg.in/yaml.v3
         go build -o keploy-runner main.go
         chmod +x keploy-runner
         ./keploy-runner > ${GITHUB_WORKSPACE}/${WORKDIR}/console-output.txt
@@ -56,90 +58,13 @@ runs:
         CONTAINER_NAME: ${{ inputs.container-name }}
         BUILD_DELAY: ${{ inputs.build-delay }}
         
-    - name: Install YAML tools
-      run: |
-        wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-        chmod +x /usr/local/bin/yq
-      shell: bash
-      
     - id: keploy-test-report
       name: Process Test Results
       run: |
-        # Look for all generated YAML reports
-        REPORT_DIR="${GITHUB_WORKSPACE}/${WORKDIR}/keploy/reports/test-run-0"
-
-        if [ -d "$REPORT_DIR" ]; then
-          echo "Found Keploy test reports directory at: $REPORT_DIR"
-          
-          # Initialize counters
-          TOTAL_TESTS=0
-          PASSED_TESTS=0
-          FAILED_TESTS=0
-          STATUS="UNKNOWN"
-          
-          # Find all test report files
-          REPORT_FILES=$(find "$REPORT_DIR" -name "test-set-*-report.yaml" | sort)
-          
-          if [ -z "$REPORT_FILES" ]; then
-            echo "Error: No Keploy test reports found in directory: $REPORT_DIR" >&2
-            exit 1
-          fi
-          
-          echo "Processing test reports:"
-          
-          # Process each report file
-          for REPORT_PATH in $REPORT_FILES; do
-            echo "Processing report: $REPORT_PATH"
-            
-            # Validate YAML first
-            if ! yq eval '.' "$REPORT_PATH" > /dev/null 2>&1; then
-              echo "Error: Invalid YAML in report file: $REPORT_PATH" >&2
-              continue
-            fi
-            
-            # Extract test results from YAML report
-            FILE_TOTAL=$(yq eval '.total // 0' "$REPORT_PATH")
-            FILE_PASSED=$(yq eval '.success // 0' "$REPORT_PATH")
-            FILE_FAILED=$(yq eval '.failure // 0' "$REPORT_PATH")
-            FILE_STATUS=$(yq eval '.status // "UNKNOWN"' "$REPORT_PATH")
-            
-            echo "  Total: $FILE_TOTAL, Passed: $FILE_PASSED, Failed: $FILE_FAILED, Status: $FILE_STATUS"
-            
-            # Aggregate results
-            TOTAL_TESTS=$((TOTAL_TESTS + FILE_TOTAL))
-            PASSED_TESTS=$((PASSED_TESTS + FILE_PASSED))
-            FAILED_TESTS=$((FAILED_TESTS + FILE_FAILED))
-            
-            # Update overall status (if any test set failed, overall status is FAILED)
-            if [ "$FILE_STATUS" = "FAILED" ]; then
-              STATUS="FAILED"
-            elif [ "$STATUS" != "FAILED" ] && [ "$FILE_STATUS" = "PASSED" ]; then
-              STATUS="PASSED"
-            fi
-          done
-          
-          # Create formatted output
-          echo "COMPLETE TESTRUN SUMMARY. Total tests: $TOTAL_TESTS" > ${GITHUB_WORKSPACE}/${WORKDIR}/final_total_tests.out
-          echo "COMPLETE TESTRUN SUMMARY. Total test passed: $PASSED_TESTS" > ${GITHUB_WORKSPACE}/${WORKDIR}/final_total_passed.out
-          echo "COMPLETE TESTRUN SUMMARY. Total test failed: $FAILED_TESTS" > ${GITHUB_WORKSPACE}/${WORKDIR}/final_total_failed.out
-          
-          # Combine the results into final.out
-          cat ${GITHUB_WORKSPACE}/${WORKDIR}/final_total_tests.out ${GITHUB_WORKSPACE}/${WORKDIR}/final_total_passed.out ${GITHUB_WORKSPACE}/${WORKDIR}/final_total_failed.out > ${GITHUB_WORKSPACE}/${WORKDIR}/final.out
-          
-          # Set the output for GitHub Actions
-          {
-            echo 'KEPLOY_REPORT<<EOF'
-            echo "## Keploy Test Results"
-            echo "**Status:** $STATUS"
-            echo "**Total Tests:** $TOTAL_TESTS"
-            echo "**Passed:** $PASSED_TESTS"
-            echo "**Failed:** $FAILED_TESTS"
-            echo 'EOF'
-          } >> $GITHUB_OUTPUT
+        if [ -f "${GITHUB_WORKSPACE}/${WORKDIR}/github_output.txt" ]; then
+          cat "${GITHUB_WORKSPACE}/${WORKDIR}/github_output.txt" >> $GITHUB_OUTPUT
         else
-          echo "Error: Keploy test reports directory not found at expected path: $REPORT_DIR" >&2
-          echo "Contents of keploy directory:"
-          find ${GITHUB_WORKSPACE}/${WORKDIR}/keploy -type f | sort
+          echo "Error: GitHub output file not found at: ${GITHUB_WORKSPACE}/${WORKDIR}/github_output.txt" >&2
           exit 1
         fi
       shell: bash
@@ -148,7 +73,7 @@ runs:
         
     - name: Check if report is generated
       run: |
-        if [ -s ${GITHUB_WORKSPACE}/${WORKDIR}/final.out ]; then
+        if [ -f "${GITHUB_WORKSPACE}/${WORKDIR}/final.out" ]; then
           echo "Report generated successfully."
         else
           echo "Error: Report not generated." >&2
@@ -157,6 +82,7 @@ runs:
       shell: bash
       env:
         WORKDIR: ${{ inputs.working-directory }}
+        
     - name: Comment on PR
       if: success() && github.event_name == 'pull_request'
       uses: actions/github-script@v6
