@@ -1,8 +1,8 @@
 on:
   push:
-    # Sequence of patterns matched against refs/tags
-    tags:
-      - 'v*.*.*' # Push events to matching v*, i.e. v1.0, v20.15.10
+    branches:
+      - main
+      - func
 
 name: Create Release
 
@@ -10,20 +10,66 @@ jobs:
   build:
     name: Create Release
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # This token is provided by Actions, you do not need to create your own token
+        uses: actions/checkout@v4
         with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23.2"
+
+      - name: Install dependencies
+        run: go get gopkg.in/yaml.v3
+
+      - name: Build binary
+        run: go build -o keploy-runner main.go
+      
+      - name: Extract commit information
+        id: commit_info
+        run: |
+          COMMIT_MSG=$(git log -1 --pretty=%s)
+          COMMIT_BODY=$(git log -1 --pretty=%b)
+          # Get the latest tag if it exists
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "No previous tags")
+          
+          echo "message<<EOF" >> $GITHUB_OUTPUT
+          echo "$COMMIT_MSG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          echo "body<<EOF" >> $GITHUB_OUTPUT
+          echo "$COMMIT_BODY" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          echo "latest_tag=$LATEST_TAG" >> $GITHUB_OUTPUT
+      
+      - name: Create latest tag
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          # Create or update the 'latest' tag
+          git tag -fa latest -m "Latest release"
+          # Push the latest tag
+          git push origin latest --force
+
+      - name: Create Latest Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest Release
           body: |
-            Changes in this Release
-            - First Change
-            - Second Change
+            # Latest Release
+            
+            This is an automatically updated release that always points to the most recent build.
+            
+            Latest commit: ${{ steps.commit_info.outputs.message }}
+            
+            This release includes the pre-built binary for the TestGPT GitHub Action.
           draft: false
           prerelease: false
+          files: |
+            keploy-runner
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

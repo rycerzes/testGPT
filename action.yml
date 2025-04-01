@@ -25,6 +25,9 @@ inputs:
   build-delay:
     description: Time to wait for docker container build
     default: 50s
+  runner-version:
+    description: Version of the runner to use
+    default: "latest"
 
 runs:
   using: "composite"
@@ -36,18 +39,16 @@ runs:
         echo "Keploy path: ${{ inputs.keploy-path }}"
       shell: bash
     
-    - name: Set up Go
-      uses: actions/setup-go@v5
-      with:
-        go-version: '1.23.2'
+    - name: Download pre-built runner
+      run: |
+        echo "Downloading from: https://github.com/rycerzes/testGPT/releases/download/latest/keploy-runner"
+        curl -L -o ${GITHUB_ACTION_PATH}/keploy-runner https://github.com/rycerzes/testGPT/releases/download/latest/keploy-runner
+        chmod +x ${GITHUB_ACTION_PATH}/keploy-runner
+      shell: bash
 
-    - name: Build and run Go implementation
+    - name: Run Keploy TestGPT
       run: |
         cd ${GITHUB_ACTION_PATH}
-        # Install required Go packages
-        go get gopkg.in/yaml.v3
-        go build -o keploy-runner main.go
-        chmod +x keploy-runner
         ./keploy-runner > ${GITHUB_WORKSPACE}/${WORKDIR}/console-output.txt
       shell: bash
       env:
