@@ -12,6 +12,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"testGPT/utils"
 )
 
 // TestReport represents the structure of a Keploy test report
@@ -311,11 +313,35 @@ func processTestReports(githubWorkspace, workDir string) {
 		}
 	}
 
+	// Get PR details if we're in a PR context
+	var prDetailsMarkdown string
+	isPRContext := false
+	prNumber, isPR := utils.GetPRNumberFromEnv()
+	if isPR {
+		isPRContext = true
+		fmt.Printf("Running in PR context. PR number: %d\n", prNumber)
+		client, err := utils.NewClient()
+		if err != nil {
+			fmt.Printf("Warning: Failed to create GitHub client: %v\n", err)
+		} else {
+			prDetails, err := client.GetPRDetails(prNumber)
+			if err != nil {
+				fmt.Printf("Warning: Failed to fetch PR details: %v\n", err)
+			} else {
+				prDetailsMarkdown = utils.FormatPRDetailsForComment(prDetails)
+				fmt.Printf("Successfully fetched details for PR #%d\n", prNumber)
+			}
+		}
+	} else {
+		fmt.Println("Not running in a PR context, running in manual trigger mode")
+	}
+
 	outputDir := filepath.Join(githubWorkspace, workDir)
 	if _, err := os.Stat(outputDir); os.IsNotExist(err) {
 		os.MkdirAll(outputDir, 0755)
 	}
 
+	// Create a detailed report for all contexts
 	var detailedReport strings.Builder
 	detailedReport.WriteString("testrun summary\n")
 	for _, testSet := range testSets {
@@ -360,9 +386,17 @@ func processTestReports(githubWorkspace, workDir string) {
 	os.WriteFile(filepath.Join(outputDir, "keploy_report.json"), jsonData, 0644)
 	fmt.Println("Test report processing complete")
 
+	// Create GitHub output for both PR and non-PR contexts
 	var githubOutputBuilder strings.Builder
 	githubOutputBuilder.WriteString("KEPLOY_REPORT<<EOF\n")
 	githubOutputBuilder.WriteString("### Keploy Test Results\n\n")
+
+	// Add PR details only if available in PR context
+	if isPRContext && prDetailsMarkdown != "" {
+		githubOutputBuilder.WriteString(prDetailsMarkdown)
+		githubOutputBuilder.WriteString("\n---\n\n")
+	}
+
 	githubOutputBuilder.WriteString("**Test Run Summary**\n\n")
 
 	for _, testSet := range testSets {
