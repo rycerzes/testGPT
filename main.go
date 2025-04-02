@@ -342,8 +342,9 @@ func processTestReports(githubWorkspace, workDir string) {
 	if err != nil {
 		fmt.Printf("Warning: Failed to read MegaLinter report: %v\n", err)
 	} else {
-		runID := utils.GetGitHubRunID()
-		megaLinterMarkdown = utils.FormatMegaLinterReport(megaLinterSummary, runID)
+		// Get the artifact link from environment variable
+		artifactLink := os.Getenv("MEGALINTER_ARTIFACT_URL")
+		megaLinterMarkdown = utils.FormatMegaLinterReport(megaLinterSummary, artifactLink)
 		fmt.Println("Successfully processed MegaLinter report")
 	}
 
@@ -410,7 +411,7 @@ func processTestReports(githubWorkspace, workDir string) {
 	// Add PR details only if available in PR context
 	if isPRContext && prDetailsMarkdown != "" {
 		githubOutputBuilder.WriteString("<details>\n")
-		githubOutputBuilder.WriteString("<summary>**🔍 PR Analysis**</summary>\n\n")
+		githubOutputBuilder.WriteString("<summary><h3>🔍 PR Analysis</h3></summary>\n\n")
 		githubOutputBuilder.WriteString(prDetailsMarkdown)
 		githubOutputBuilder.WriteString("</details>\n\n")
 	}
@@ -418,7 +419,7 @@ func processTestReports(githubWorkspace, workDir string) {
 	// Add MegaLinter report if available
 	if megaLinterMarkdown != "" {
 		githubOutputBuilder.WriteString("<details>\n")
-		githubOutputBuilder.WriteString("<summary>**🔍 MegaLinter Analysis**</summary>\n\n")
+		githubOutputBuilder.WriteString("<summary><h3>🔍 MegaLinter Analysis</h3></summary>\n\n")
 		githubOutputBuilder.WriteString(megaLinterMarkdown)
 		githubOutputBuilder.WriteString("</details>\n\n")
 	}

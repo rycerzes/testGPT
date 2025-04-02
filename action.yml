@@ -64,6 +64,12 @@ runs:
         name: megalinter-report
         path: ${{ inputs.working-directory }}/megalinter-reports/
         retention-days: 1
+      id: upload-megalinter
+
+    - name: Set MegaLinter artifact link
+      shell: bash
+      run: |
+        echo "MEGALINTER_ARTIFACT_URL=https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" >> $GITHUB_ENV
 
     - name: Download pre-built runner
       run: |
@@ -85,6 +91,7 @@ runs:
         CONTAINER_NAME: ${{ inputs.container-name }}
         BUILD_DELAY: ${{ inputs.build-delay }}
         GITHUB_TOKEN: ${{ inputs.github-token }}
+        MEGALINTER_ARTIFACT_URL: ${{ env.MEGALINTER_ARTIFACT_URL }}
 
     - id: keploy-test-report
       name: Process Test Results

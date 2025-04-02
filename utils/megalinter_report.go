@@ -56,7 +56,7 @@ func GetMegaLinterReport(githubWorkspace, workDir string) (*MegaLinterSummary, e
 	}, nil
 }
 
-func FormatMegaLinterReport(summary *MegaLinterSummary, runID string) string {
+func FormatMegaLinterReport(summary *MegaLinterSummary, artifactLink string) string {
 	var sb strings.Builder
 
 	statusEmoji := "⚠️"
@@ -68,20 +68,18 @@ func FormatMegaLinterReport(summary *MegaLinterSummary, runID string) string {
 
 	sb.WriteString(fmt.Sprintf("### %s **MegaLinter Results**\n\n", statusEmoji))
 
-	sb.WriteString("```\n")
 	sb.WriteString(summary.Table)
-	sb.WriteString("\n```\n\n")
-
-	artifactLink := fmt.Sprintf("https://github.com/%s/actions/runs/%s/artifacts",
-		os.Getenv("GITHUB_REPOSITORY"),
-		runID)
 
 	actionsLink := fmt.Sprintf("https://github.com/%s/actions/runs/%s",
 		os.Getenv("GITHUB_REPOSITORY"),
-		runID)
+		os.Getenv("GITHUB_RUN_ID"))
 
-	sb.WriteString(fmt.Sprintf("- [MegaLinter Full Report](%s)\n", actionsLink))
-	sb.WriteString(fmt.Sprintf("- [Download MegaLinter Report](%s)\n", artifactLink))
+	sb.WriteString(fmt.Sprintf("\n- [MegaLinter Full Report](%s)\n", actionsLink))
+
+	// Use the provided artifact link instead of constructing one
+	if artifactLink != "" {
+		sb.WriteString(fmt.Sprintf("- [Download MegaLinter Report](%s)\n", artifactLink))
+	}
 
 	return sb.String()
 }
