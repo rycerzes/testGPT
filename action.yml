@@ -19,12 +19,12 @@ inputs:
   delay:
     description: Time to start application
     required: true
-    default: 10s
+    default: "10"
   container-name:
     description: Name of the container in case of "docker compose" command
   build-delay:
     description: Time to wait for docker container build
-    default: 50s
+    default: "50"
   runner-version:
     description: Version of the runner to use
     default: "latest"
@@ -41,7 +41,36 @@ runs:
         echo "Working directory: ${{ inputs.working-directory }}"
         echo "Keploy path: ${{ inputs.keploy-path }}"
       shell: bash
-    
+
+    - name: Run MegaLinter
+      shell: bash
+      run: |
+        docker run -v $(pwd):/tmp/lint \
+          -e GITHUB_TOKEN=${{ inputs.github-token }} \
+          -e REPORT_OUTPUT_FOLDER=/tmp/lint/megalinter-reports \
+          -e DISABLE_ERRORS=true \
+          -e PARALLEL=true \
+          -e JSON_REPORTER=true \
+          -e MARKDOWN_SUMMARY_REPORTER=true \
+          -e EXCLUDED_DIRECTORIES="keploy,megalinter-reports" \
+          -e SHOW_SKIPPED_LINTERS=false \
+          -e SHOW_ELAPSED_TIME=true \
+          oxsecurity/megalinter-cupcake:v8.5.0
+      working-directory: ${{ inputs.working-directory }}
+
+    - name: Upload MegaLinter Report
+      uses: actions/upload-artifact@v4
+      with:
+        name: megalinter-report
+        path: ${{ inputs.working-directory }}/megalinter-reports/
+        retention-days: 1
+      id: upload-megalinter
+
+    - name: Set MegaLinter artifact link
+      shell: bash
+      run: |
+        echo "MEGALINTER_ARTIFACT_URL=https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" >> $GITHUB_ENV
+
     - name: Download pre-built runner
       run: |
         echo "Downloading from: https://github.com/rycerzes/testGPT/releases/download/latest/keploy-runner"
@@ -62,7 +91,8 @@ runs:
         CONTAINER_NAME: ${{ inputs.container-name }}
         BUILD_DELAY: ${{ inputs.build-delay }}
         GITHUB_TOKEN: ${{ inputs.github-token }}
-        
+        MEGALINTER_ARTIFACT_URL: ${{ env.MEGALINTER_ARTIFACT_URL }}
+
     - id: keploy-test-report
       name: Process Test Results
       run: |
@@ -75,7 +105,7 @@ runs:
       shell: bash
       env:
         WORKDIR: ${{ inputs.working-directory }}
-        
+
     - name: Check if report is generated
       run: |
         if [ -f "${GITHUB_WORKSPACE}/${WORKDIR}/final.out" ]; then
@@ -87,7 +117,7 @@ runs:
       shell: bash
       env:
         WORKDIR: ${{ inputs.working-directory }}
-        
+
     - name: Comment on PR
       if: success() && github.event_name == 'pull_request'
       uses: actions/github-script@v6

@@ -112,7 +112,7 @@ func FormatPRDetailsForComment(pr *PRDetails) string {
 	sb.WriteString(fmt.Sprintf("**Updated At**: %s\n\n", pr.UpdatedAt))
 
 	sb.WriteString("<details>\n")
-	sb.WriteString("<summary>**🔍 PR Analysis Details**</summary>\n\n")
+	sb.WriteString("<summary><h4>🔍 PR Analysis Details<h4></summary>\n\n")
 	sb.WriteString("#### **Changed Files**\n\n")
 
 	for _, file := range pr.ChangedFiles {

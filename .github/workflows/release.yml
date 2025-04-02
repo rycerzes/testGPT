@@ -3,6 +3,7 @@ on:
     branches:
       - main
       - func
+      - lint
 
 name: Create Release
 
