@@ -336,6 +336,17 @@ func processTestReports(githubWorkspace, workDir string) {
 		fmt.Println("Not running in a PR context, running in manual trigger mode")
 	}
 
+	// Get MegaLinter report if available
+	var megaLinterMarkdown string
+	megaLinterSummary, err := utils.GetMegaLinterReport(githubWorkspace, workDir)
+	if err != nil {
+		fmt.Printf("Warning: Failed to read MegaLinter report: %v\n", err)
+	} else {
+		runID := utils.GetGitHubRunID()
+		megaLinterMarkdown = utils.FormatMegaLinterReport(megaLinterSummary, runID)
+		fmt.Println("Successfully processed MegaLinter report")
+	}
+
 	outputDir := filepath.Join(githubWorkspace, workDir)
 	if _, err := os.Stat(outputDir); os.IsNotExist(err) {
 		os.MkdirAll(outputDir, 0755)
@@ -401,6 +412,14 @@ func processTestReports(githubWorkspace, workDir string) {
 		githubOutputBuilder.WriteString("<details>\n")
 		githubOutputBuilder.WriteString("<summary>**🔍 PR Analysis**</summary>\n\n")
 		githubOutputBuilder.WriteString(prDetailsMarkdown)
+		githubOutputBuilder.WriteString("</details>\n\n")
+	}
+
+	// Add MegaLinter report if available
+	if megaLinterMarkdown != "" {
+		githubOutputBuilder.WriteString("<details>\n")
+		githubOutputBuilder.WriteString("<summary>**🔍 MegaLinter Analysis**</summary>\n\n")
+		githubOutputBuilder.WriteString(megaLinterMarkdown)
 		githubOutputBuilder.WriteString("</details>\n\n")
 	}
 
